@@ -6,18 +6,18 @@ MUNINDIR=/var/cache/munin/www # cache directory for skipped munin runs
 SKIPMUNINRUN=12 # amount of muninruns that should skip the zpool command (reading from cache)
 # TODO put this in munin config
 
-
 # If skipmuninrun is greater than 1
 # a sort of caching is enabled (files are being created in MUNINDIR)
 COUNT=0
 if [ $SKIPMUNINRUN > 0 ]; then
-  if [ -f $MUNINDIR/zfs_composition_count_$1  ]; then
+  if [ -f $MUNINDIR/zfs_composition_count_$1 ]; then
     COUNT=$(cat $MUNINDIR/zfs_composition_count_$1)
   fi
   COUNT=$(expr $COUNT + 1)
   COUNT=$(expr $COUNT % $(expr $SKIPMUNINRUN + 1))
   echo $COUNT > $MUNINDIR/zfs_composition_count_$1
-#  cat $MUNINDIR/zfs_composition_count_$1
+  chmod 644 $MUNINDIR/zfs_composition_count_$1
+  #cat $MUNINDIR/zfs_composition_count_$1
 fi
 
 case $1 in
@@ -30,15 +30,24 @@ case $1 in
       ;;
     config )
       # get zfs values (all of them at once)
-      ZFSVALUES=$(zfs get -Hp usedbydataset,usedbysnapshots -r | grep -v @)
+      if [ ! -f $MUNINDIR/zfs_composition_zfsvalues ] || [ $COUNT -eq 0 ]; then
+        ZFSVALUES=$(zfs get -Hp usedbydataset,usedbysnapshots -r | grep -v @)
+        if [ $SKIPMUNINRUN > 0 ]; then                     
+          echo $ZFSVALUES > $MUNINDIR/zfs_composition_zfsvalues
+          chmod 644 $MUNINDIR/zfs_composition_zfsvalues
+        fi                                                 
+      else
+        ZFSVALUES=$(cat $MUNINDIR/zfs_composition_zfsvalues)
+      fi
       ZFSNROFVALUES=2
 
       # get pool names (multigraph for each pool one)
       if [ ! -f $MUNINDIR/zfs_composition_pools ] || [ $COUNT -eq 0 ]; then
         ZPOOLLIST=$(zpool list -H -o name)
-	  if [ $SKIPMUNINRUN > 0 ]; then
-	    echo $ZPOOLLIST > $MUNINDIR/zfs_composition_pools
-	  fi
+	if [ $SKIPMUNINRUN > 0 ]; then
+	  echo $ZPOOLLIST > $MUNINDIR/zfs_composition_pools
+          chmod 644 $MUNINDIR/zfs_composition_pools
+	fi
       else
         ZPOOLLIST=$(cat $MUNINDIR/zfs_composition_pools)
       fi
@@ -71,6 +80,7 @@ case $1 in
           done
           if [ $SKIPMUNINRUN > 0 ]; then
             echo $OUTPUT > $MUNINDIR/zfs_composition_run_config_$POOL
+            chmod 644 $MUNINDIR/zfs_composition_run_config_$POOL
           fi
         else # read from cache
           OUTPUT=$(cat $MUNINDIR/zfs_composition_run_config_$POOL)
@@ -87,7 +97,7 @@ graph_scale no
 graph_args --upper-limit 100 -l 0 -r
 ${OUTPUT}available.label Available
 available.draw STACK
-available.info dont know
+available.info dont know $COUNT
 available.colour 00FF33"
 EOF
       done
@@ -98,7 +108,15 @@ esac
 # munin action
 
 # get zfs values (all of them at once)
-ZFSVALUES=$(zfs get -Hp usedbydataset,usedbysnapshots -r | grep -v @)
+if [ ! -f $MUNINDIR/zfs_composition_zfsvalues ] || [ $COUNT -eq 0 ]; then
+  ZFSVALUES=$(zfs get -Hp usedbydataset,usedbysnapshots -r | grep -v @) 
+  if [ $SKIPMUNINRUN > 0 ]; then                                        
+    echo $ZFSVALUES > $MUNINDIR/zfs_composition_zfsvalues               
+    chmod 644 $MUNINDIR/zfs_composition_zfsvalues                       
+  fi                                                                    
+else                                                                    
+  ZFSVALUES=$(cat $MUNINDIR/zfs_composition_zfsvalues)                  
+fi                                                                      
 ZFSNROFVALUES=2
 
 # get pool names (multigraph for each pool one)
@@ -106,6 +124,7 @@ if [ ! -f $MUNINDIR/zfs_composition_pools ] || [ $COUNT -eq 0 ]; then
   ZPOOLLIST=$(zpool list -H -o name)
   if [ $SKIPMUNINRUN > 0 ]; then                             
     echo $ZPOOLLIST > $MUNINDIR/zfs_composition_pools
+    chmod 644 $MUNINDIR/zfs_composition_pools
   fi                                                         
 else
   ZPOOLLIST=$(cat $MUNINDIR/zfs_composition_pools)
@@ -140,6 +159,7 @@ for POOL in $ZPOOLLIST; do
     OUTPUT="${OUTPUT}available.value $POOLAVAILABLE"
     if [ $SKIPMUNINRUN > 0 ]; then
       echo $OUTPUT > $MUNINDIR/zfs_composition_run_normal_$POOL
+      chmod 644 $MUNINDIR/zfs_composition_run_normal_$POOL
     fi
   else # read from cache
     OUTPUT=$(cat $MUNINDIR/zfs_composition_run_normal_$POOL)
