@@ -136,18 +136,17 @@ for POOL in $ZPOOLLIST; do
         OUTPUT="$OUTPUT$IDENTIFIER.value $VALUE\n"
       done
     done
+    POOLAVAILABLE=$(awk -v v1=$SUM "BEGIN {print 100-v1}")
+    OUTPUT="${OUTPUT}available.value $POOLAVAILABLE"
     if [ $SKIPMUNINRUN > 0 ]; then
       echo $OUTPUT > $MUNINDIR/zfs_composition_run_normal_$POOL
     fi
   else # read from cache
     OUTPUT=$(cat $MUNINDIR/zfs_composition_run_normal_$POOL)
-    OUTPUT="$OUTPUT\n"
   fi
 
-  POOLAVAILABLE=$(awk -v v1=$SUM "BEGIN {print 100-v1}")
-
   echo <<EOF "multigraph zfs_composition_$POOL
-${OUTPUT}available.value $POOLAVAILABLE"
+${OUTPUT}"
 EOF
 done
 
