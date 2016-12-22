@@ -3,20 +3,21 @@
 # plugin by schwerpunkt
 
 MUNINDIR=/var/cache/munin/www # cache directory for skipped munin runs
-SKIPMUNINRUN=6 # amount of muninruns that should skip the zpool command (reading from cache)
-# TODO push variables4 to munin config file
+SKIPMUNINRUN=12 # amount of muninruns that should skip the zpool command (reading from cache)
+# TODO put this in munin config
+
 
 # If skipmuninrun is greater than 1
 # a sort of caching is enabled (files are being created in MUNINDIR)
 COUNT=0
 if [ $SKIPMUNINRUN > 0 ]; then
-  if [ -f $MUNINDIR/zfs_composition_count  ]; then
-    COUNT=$(cat $MUNINDIR/zfs_composition_count)
+  if [ -f $MUNINDIR/zfs_composition_count_$1  ]; then
+    COUNT=$(cat $MUNINDIR/zfs_composition_count_$1)
   fi
   COUNT=$(expr $COUNT + 1)
   COUNT=$(expr $COUNT % $(expr $SKIPMUNINRUN + 1))
-  echo $COUNT > $MUNINDIR/zfs_composition_count
-#  cat $MUNINDIR/zfs_composition_count
+  echo $COUNT > $MUNINDIR/zfs_composition_count_$1
+#  cat $MUNINDIR/zfs_composition_count_$1
 fi
 
 case $1 in
@@ -33,32 +34,50 @@ case $1 in
       ZFSNROFVALUES=2
 
       # get pool names (multigraph for each pool one)
-      for POOL in $(zpool list -H -o name); do
-        # get values for all zfs in pool
-        POOLVALUES=$(echo "$ZFSVALUES" | grep -w "^$POOL")
-
-	POOLZFSCOUNT=$(expr $(echo "$POOLVALUES" | wc -l) / $ZFSNROFVALUES)
-
-        OUTPUT=""
-        for I in $(seq 1 $POOLZFSCOUNT); do
-          for J in $(seq 0 $(expr $ZFSNROFVALUES - 1));do
-            IDENTIFIERLINE=$(echo "$POOLVALUES" | sed "$(expr $(expr $I \* $ZFSNROFVALUES) - $J)q;d")
-            IDENTIFIERORIG="$(echo $IDENTIFIERLINE | awk '{print $1}{print $2}')"
-            IDENTIFIERORIG=$(echo $IDENTIFIERORIG)
-            IDENTIFIER=$(echo $IDENTIFIERORIG | tr "-" "--")
-            IDENTIFIER=$(echo $IDENTIFIER | tr "/" "-")
-            IDENTIFIER=$(echo $IDENTIFIER | awk '{print $1$2}')
-            OUTPUT="$OUTPUT$IDENTIFIER.label $IDENTIFIERORIG\n"
-            if [ $I = 1 ] && [ $J = 0 ]; then
-              OUTPUT="$OUTPUT$IDENTIFIER.draw AREA\n"
-            else
-              OUTPUT="$OUTPUT$IDENTIFIER.draw STACK\n"
-            fi
+      if [ ! -f $MUNINDIR/zfs_composition_pools ] || [ $COUNT -eq 0 ]; then
+        ZPOOLLIST=$(zpool list -H -o name)
+	  if [ $SKIPMUNINRUN > 0 ]; then
+	    echo $ZPOOLLIST > $MUNINDIR/zfs_composition_pools
+	  fi
+      else
+        ZPOOLLIST=$(cat $MUNINDIR/zfs_composition_pools)
+      fi
+      for POOL in $ZPOOLLIST; do
+        if [ ! -f $MUNINDIR/zfs_composition_run_config_$POOL ] || [ $COUNT -eq 0 ]; then
+          # get values for all zfs in pool
+          POOLVALUES=$(echo "$ZFSVALUES" | grep -w "^$POOL")
+  
+	  POOLZFSCOUNT=$(expr $(echo "$POOLVALUES" | wc -l) / $ZFSNROFVALUES)
+  
+          OUTPUT=""
+          for I in $(seq 1 $POOLZFSCOUNT); do
+            for J in $(seq 0 $(expr $ZFSNROFVALUES - 1));do
+              IDENTIFIERLINE=$(echo "$POOLVALUES" | sed "$(expr $(expr $I \* $ZFSNROFVALUES) - $J)q;d")
+              IDENTIFIERORIG="$(echo $IDENTIFIERLINE | awk '{print $1}{print $2}')"
+              IDENTIFIERORIG=$(echo $IDENTIFIERORIG)
+              IDENTIFIER=$(echo $IDENTIFIERORIG | tr "-" "--")
+              IDENTIFIER=$(echo $IDENTIFIER | tr "/" "-")
+              IDENTIFIER=$(echo $IDENTIFIER | awk '{print $1$2}')
+              OUTPUT="$OUTPUT$IDENTIFIER.label $IDENTIFIERORIG\n"
+              if [ $I = 1 ] && [ $J = 0 ]; then
+                OUTPUT="$OUTPUT$IDENTIFIER.draw AREA\n"
+              else
+                OUTPUT="$OUTPUT$IDENTIFIER.draw STACK\n"
+              fi
 #TODO change color
-            COLORNR=$(expr $(expr $I - 1) % 20)
-            OUTPUT="$OUTPUT$IDENTIFIER.colour COLOUR$COLORNR\n"
+              COLORNR=$(expr $(expr $I - 1) % 20)
+              OUTPUT="$OUTPUT$IDENTIFIER.colour COLOUR$COLORNR\n"
+            done
           done
-        done
+          if [ $SKIPMUNINRUN > 0 ]; then
+            echo $OUTPUT > $MUNINDIR/zfs_composition_run_config_$POOL
+          fi
+        else # read from cache
+          OUTPUT=$(cat $MUNINDIR/zfs_composition_run_config_$POOL)
+          OUTPUT="$OUTPUT\n"
+        fi
+
+
 
         echo <<EOF "multigraph zfs_composition_$POOL
 graph_title zpool $POOL composition in percent
@@ -122,6 +141,7 @@ for POOL in $ZPOOLLIST; do
     fi
   else # read from cache
     OUTPUT=$(cat $MUNINDIR/zfs_composition_run_normal_$POOL)
+    OUTPUT="$OUTPUT\n"
   fi
 
   POOLAVAILABLE=$(awk -v v1=$SUM "BEGIN {print 100-v1}")
